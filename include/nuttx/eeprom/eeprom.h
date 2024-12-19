@@ -68,6 +68,10 @@
                                              * IN:  None
                                              * OUT: None (ioctl return value provides
                                              *      success/failure indication). */
+#define EEPIOC_SETSPEED     _EEPIOC(0x004)  /* Overwrite the SPI/I2C bus speed
+                                             * IN:  Bus speed in Hz
+                                             * OUT: None (ioctl return value provides
+                                             *      success/failure indication). */
 
 /************************************************************************************
  * Type Definitions

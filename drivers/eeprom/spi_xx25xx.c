@@ -168,14 +168,17 @@
 
 struct ee25xx_dev_s
 {
-  struct spi_dev_s *spi;     /* SPI device where the EEPROM is attached */
-  uint32_t         size;     /* in bytes, expanded from geometry */
-  uint16_t         pgsize;   /* write block size, in bytes, expanded from geometry */
-  uint32_t         secsize;  /* write sector size, in bytes, expanded from geometry */
-  uint16_t         addrlen;  /* number of BITS in data addresses */
-  mutex_t          lock;     /* file access serialization */
-  uint8_t          refs;     /* The number of times the device has been opened */
-  uint8_t          readonly; /* Flags */
+  struct spi_dev_s *spi;  /* SPI device where the EEPROM is attached        */
+  uint32_t          freq; /* SPI bus frequency in Hz                        */
+
+  uint32_t size;     /* in bytes, expanded from geometry                    */
+  uint16_t pgsize;   /* write block size, in bytes, expanded from geometry  */
+  uint32_t secsize;  /* write sector size, in bytes, expanded from geometry */
+  uint16_t addrlen;  /* number of BITS in data addresses                    */
+
+  mutex_t lock;     /* file access serialization                            */
+  uint8_t refs;     /* The number of times the device has been opened       */
+  uint8_t readonly; /* Flags                                                */
 };
 
 /****************************************************************************
@@ -184,8 +187,8 @@ struct ee25xx_dev_s
 
 /* SPI lock/unlock */
 
-static void ee25xx_lock(FAR struct spi_dev_s *dev);
-static void ee25xx_unlock(FAR struct spi_dev_s *dev);
+static void ee25xx_lock(FAR struct ee25xx_dev_s *eedev);
+static void ee25xx_unlock(FAR struct ee25xx_dev_s *eedev);
 
 /* Trigger a read/write operation */
 
@@ -195,7 +198,7 @@ static void ee25xx_sendcmd(FAR struct spi_dev_s *spi, uint8_t cmd,
 /* Write/erase related functions */
 
 static void ee25xx_waitwritecomplete(struct ee25xx_dev_s *priv);
-static void ee25xx_writeenable(FAR struct spi_dev_s *spi, int enable);
+static void ee25xx_writeenable(FAR struct ee25xx_dev_s *priv, int enable);
 static void ee25xx_writepage(FAR struct ee25xx_dev_s *eedev,
                              uint32_t devaddr, FAR const char *data,
                              size_t len);
@@ -272,8 +275,10 @@ static void ee25xx_populateaddrlen(FAR struct ee25xx_dev_s *eedev)
  * Name: ee25xx_lock
  ****************************************************************************/
 
-static void ee25xx_lock(FAR struct spi_dev_s *dev)
+static void ee25xx_lock(FAR struct ee25xx_dev_s *priv)
 {
+  DEBUGASSERT(priv);
+
   /* On SPI buses where there are multiple devices, it will be necessary to
    * lock SPI to have exclusive access to the buses for a sequence of
    * transfers.  The bus should be locked before the chip is selected.
@@ -283,7 +288,7 @@ static void ee25xx_lock(FAR struct spi_dev_s *dev)
    * bus is unlocked.
    */
 
-  SPI_LOCK(dev, true);
+  SPI_LOCK(priv->spi, true);
 
   /* After locking the SPI bus, the we also need call the setfrequency,
    * setbits, and setmode methods to make sure that the SPI is properly
@@ -291,12 +296,12 @@ static void ee25xx_lock(FAR struct spi_dev_s *dev)
    * have been left in an incompatible state.
    */
 
-  SPI_SETMODE(dev, CONFIG_EE25XX_SPIMODE);
-  SPI_SETBITS(dev, 8);
-  SPI_HWFEATURES(dev, 0);
-  SPI_SETFREQUENCY(dev, CONFIG_EE25XX_FREQUENCY);
+  SPI_SETMODE(priv->spi, CONFIG_EE25XX_SPIMODE);
+  SPI_SETBITS(priv->spi, 8);
+  SPI_HWFEATURES(priv->spi, 0);
+  SPI_SETFREQUENCY(priv->spi, priv->freq);
 #ifdef CONFIG_SPI_DELAY_CONTROL
-  SPI_SETDELAY(dev, CONFIG_EE25XX_START_DELAY, CONFIG_EE25XX_STOP_DELAY,
+  SPI_SETDELAY(priv->spi, CONFIG_EE25XX_START_DELAY, CONFIG_EE25XX_STOP_DELAY,
                     CONFIG_EE25XX_CS_DELAY, CONFIG_EE25XX_IFDELAY);
 #endif
 }
@@ -305,9 +310,11 @@ static void ee25xx_lock(FAR struct spi_dev_s *dev)
  * Name: ee25xx_unlock
  ****************************************************************************/
 
-static inline void ee25xx_unlock(FAR struct spi_dev_s *dev)
+static inline void ee25xx_unlock(FAR struct ee25xx_dev_s *priv)
 {
-  SPI_LOCK(dev, false);
+  DEBUGASSERT(priv);
+
+  SPI_LOCK(priv->spi, false);
 }
 
 /****************************************************************************
@@ -367,7 +374,7 @@ static void ee25xx_waitwritecomplete(struct ee25xx_dev_s *priv)
     {
       /* Select this FLASH part */
 
-      ee25xx_lock(priv->spi);
+      ee25xx_lock(priv);
       SPI_SELECT(priv->spi, SPIDEV_EEPROM(0), true);
 
       /* Send "Read Status Register (RDSR)" command */
@@ -383,7 +390,7 @@ static void ee25xx_waitwritecomplete(struct ee25xx_dev_s *priv)
       /* Deselect the FLASH */
 
       SPI_SELECT(priv->spi, SPIDEV_EEPROM(0), false);
-      ee25xx_unlock(priv->spi);
+      ee25xx_unlock(priv);
 
       /* Given that writing could take up to a few milliseconds,
        * the following short delay in the "busy" case will allow
@@ -407,15 +414,17 @@ static void ee25xx_waitwritecomplete(struct ee25xx_dev_s *priv)
  *
  ****************************************************************************/
 
-static void ee25xx_writeenable(FAR struct spi_dev_s *spi, int enable)
+static void ee25xx_writeenable(FAR struct ee25xx_dev_s *priv, int enable)
 {
-  ee25xx_lock(spi);
-  SPI_SELECT(spi, SPIDEV_EEPROM(0), true);
+  DEBUGASSERT(priv);
 
-  SPI_SEND(spi, enable ? EE25XX_CMD_WREN : EE25XX_CMD_WRDIS);
+  ee25xx_lock(priv);
+  SPI_SELECT(priv->spi, SPIDEV_EEPROM(0), true);
 
-  SPI_SELECT(spi, SPIDEV_EEPROM(0), false);
-  ee25xx_unlock(spi);
+  SPI_SEND(priv->spi, enable ? EE25XX_CMD_WREN : EE25XX_CMD_WRDIS);
+
+  SPI_SELECT(priv->spi, SPIDEV_EEPROM(0), false);
+  ee25xx_unlock(priv);
 }
 
 /****************************************************************************
@@ -430,14 +439,14 @@ static void ee25xx_writepage(FAR struct ee25xx_dev_s *eedev,
                              FAR const char *data,
                              size_t len)
 {
-  ee25xx_lock(eedev->spi);
+  ee25xx_lock(eedev);
   SPI_SELECT(eedev->spi, SPIDEV_EEPROM(0), true);
 
   ee25xx_sendcmd(eedev->spi, EE25XX_CMD_WRITE, eedev->addrlen, devaddr);
   SPI_SNDBLOCK(eedev->spi, data, len);
 
   SPI_SELECT(eedev->spi, SPIDEV_EEPROM(0), false);
-  ee25xx_unlock(eedev->spi);
+  ee25xx_unlock(eedev);
 }
 
 /****************************************************************************
@@ -471,15 +480,15 @@ static int ee25xx_eraseall(FAR struct ee25xx_dev_s *eedev)
           return ret;
         }
 
-      ee25xx_writeenable(eedev->spi, true);
+      ee25xx_writeenable(eedev, true);
 
-      ee25xx_lock(eedev->spi);
+      ee25xx_lock(eedev);
       SPI_SELECT(eedev->spi, SPIDEV_EEPROM(0), true);
 
       SPI_SEND(eedev->spi, EEP25XX_CMD_CE);
 
       SPI_SELECT(eedev->spi, SPIDEV_EEPROM(0), false);
-      ee25xx_unlock(eedev->spi);
+      ee25xx_unlock(eedev);
 
       ee25xx_waitwritecomplete(eedev);
 
@@ -512,7 +521,7 @@ static int ee25xx_eraseall(FAR struct ee25xx_dev_s *eedev)
 
       for (offset = 0; offset < eedev->size; offset += eedev->pgsize)
         {
-          ee25xx_writeenable(eedev->spi, true);
+          ee25xx_writeenable(eedev, true);
           ee25xx_writepage(eedev, offset, (char *)buf, eedev->pgsize);
           ee25xx_waitwritecomplete(eedev);
         }
@@ -563,16 +572,16 @@ static int ee25xx_erasepage(FAR struct ee25xx_dev_s *eedev,
           return ret;
         }
 
-      ee25xx_writeenable(eedev->spi, true);
+      ee25xx_writeenable(eedev, true);
 
-      ee25xx_lock(eedev->spi);
+      ee25xx_lock(eedev);
       SPI_SELECT(eedev->spi, SPIDEV_EEPROM(0), true);
 
       ee25xx_sendcmd(eedev->spi, EEP25XX_CMD_PE, eedev->addrlen,
                      index * eedev->pgsize);
 
       SPI_SELECT(eedev->spi, SPIDEV_EEPROM(0), false);
-      ee25xx_unlock(eedev->spi);
+      ee25xx_unlock(eedev);
 
       ee25xx_waitwritecomplete(eedev);
 
@@ -601,7 +610,7 @@ static int ee25xx_erasepage(FAR struct ee25xx_dev_s *eedev,
           goto free_buffer;
         }
 
-      ee25xx_writeenable(eedev->spi, true);
+      ee25xx_writeenable(eedev, true);
       ee25xx_writepage(eedev, index * eedev->pgsize, (char *)buf,
                        eedev->pgsize);
       ee25xx_waitwritecomplete(eedev);
@@ -644,16 +653,16 @@ static int ee25xx_erasesector(FAR struct ee25xx_dev_s *eedev,
       return ret;
     }
 
-  ee25xx_writeenable(eedev->spi, true);
+  ee25xx_writeenable(eedev, true);
 
-  ee25xx_lock(eedev->spi);
+  ee25xx_lock(eedev);
   SPI_SELECT(eedev->spi, SPIDEV_EEPROM(0), true);
 
   ee25xx_sendcmd(eedev->spi, EEP25XX_CMD_SE, eedev->addrlen,
                  index * eedev->secsize);
 
   SPI_SELECT(eedev->spi, SPIDEV_EEPROM(0), false);
-  ee25xx_unlock(eedev->spi);
+  ee25xx_unlock(eedev);
 
   ee25xx_waitwritecomplete(eedev);
 
@@ -844,7 +853,7 @@ static ssize_t ee25xx_read(FAR struct file *filep, FAR char *buffer,
       len = eedev->size - filep->f_pos;
     }
 
-  ee25xx_lock(eedev->spi);
+  ee25xx_lock(eedev);
   SPI_SELECT(eedev->spi, SPIDEV_EEPROM(0), true);
 
   ee25xx_sendcmd(eedev->spi, EE25XX_CMD_READ, eedev->addrlen, filep->f_pos);
@@ -852,7 +861,7 @@ static ssize_t ee25xx_read(FAR struct file *filep, FAR char *buffer,
   SPI_RECVBLOCK(eedev->spi, buffer, len);
 
   SPI_SELECT(eedev->spi, SPIDEV_EEPROM(0), false);
-  ee25xx_unlock(eedev->spi);
+  ee25xx_unlock(eedev);
 
   /* Update the file position */
 
@@ -927,7 +936,7 @@ static ssize_t ee25xx_write(FAR struct file *filep, FAR const char *buffer,
 
   if (pageoff > 0)
     {
-      ee25xx_writeenable(eedev->spi, true);
+      ee25xx_writeenable(eedev, true);
       ee25xx_writepage(eedev, filep->f_pos, buffer, cnt);
       ee25xx_waitwritecomplete(eedev);
       len          -= cnt;
@@ -945,7 +954,7 @@ static ssize_t ee25xx_write(FAR struct file *filep, FAR const char *buffer,
           cnt = eedev->pgsize;
         }
 
-      ee25xx_writeenable(eedev->spi, true);
+      ee25xx_writeenable(eedev, true);
       ee25xx_writepage(eedev, filep->f_pos, buffer, cnt);
       ee25xx_waitwritecomplete(eedev);
       len          -= cnt;
@@ -1008,6 +1017,17 @@ static int ee25xx_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
         ret = ee25xx_eraseall(eedev);
         break;
 
+      case EEPIOC_SETSPEED:
+        {
+          ret = nxmutex_lock(&eedev->lock);
+          if (ret == OK)
+          {
+            eedev->freq = (uint32_t)arg;
+            nxmutex_unlock(&eedev->lock);
+          }
+        }
+        break;
+
       default:
         ret = -ENOTTY;
     }
@@ -1061,6 +1081,7 @@ int ee25xx_initialize(FAR struct spi_dev_s *dev, FAR char *devname,
   nxmutex_init(&eedev->lock);
 
   eedev->spi      = dev;
+  eedev->freq     = CONFIG_EE25XX_FREQUENCY;
   eedev->size     = CONFIG_EE25XX_MEMSIZE;
   eedev->pgsize   = CONFIG_EE25XX_PGSIZE;
   eedev->secsize  = CONFIG_EE25XX_SECTSIZE;

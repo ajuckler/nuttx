@@ -539,6 +539,10 @@ static int at25ee_ioctl(FAR struct mtd_dev_s *dev,
         }
         break;
 
+      case MTDIOC_SETSPEED:
+        ret = file_ioctl(&priv->mtdfile, EEPIOC_SETSPEED, arg);
+        break;
+
       default:
         ret = -ENOTTY; /* Bad command */
         break;
