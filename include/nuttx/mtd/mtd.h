@@ -409,17 +409,27 @@ FAR struct mtd_dev_s *at24c_initialize(FAR struct i2c_master_s *dev);
  *   (such as a block or character driver front end).
  *
  * Input Parameters:
- *   dev        - a reference to the spi device structure
- *   devtype    - device type, from include/nuttx/eeprom/spi_xx25xx.h
- *   readonly   - sets block driver to be readonly
+ *   eedevname  - name of the underlying eeprom/spi_xx25xx character driver
  *
  * Returned Value:
  *   Initialised device structure (success) of NULL (fail)
  *
  ****************************************************************************/
 
-FAR struct mtd_dev_s *at25ee_initialize(FAR struct spi_dev_s *dev,
-                                        int devtype, int readonly);
+FAR struct mtd_dev_s *at25ee_initialize(FAR char *eedevname);
+
+/****************************************************************************
+ * Name: at25ee_teardown
+ *
+ * Description:
+ *   Teardown a previously created at25ee device.
+ *
+ * Input Parameters:
+ *   dev - Pointer to the mtd driver instance.
+ *
+ ****************************************************************************/
+
+void at25ee_teardown(FAR struct mtd_dev_s *mtd);
 
 /****************************************************************************
  * Name: at24c_uninitialize

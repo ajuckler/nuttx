@@ -324,6 +324,10 @@ static void ee25xx_lock(FAR struct spi_dev_s *dev)
   SPI_SETBITS(dev, 8);
   SPI_HWFEATURES(dev, 0);
   SPI_SETFREQUENCY(dev, CONFIG_EE25XX_FREQUENCY);
+#ifdef CONFIG_SPI_DELAY_CONTROL
+  SPI_SETDELAY(dev, CONFIG_EE25XX_START_DELAY, CONFIG_EE25XX_STOP_DELAY,
+                    CONFIG_EE25XX_CS_DELAY, CONFIG_EE25XX_IFDELAY);
+#endif
 }
 
 /****************************************************************************
