@@ -410,13 +410,14 @@ FAR struct mtd_dev_s *at24c_initialize(FAR struct i2c_master_s *dev);
  *
  * Input Parameters:
  *   eedevname  - name of the underlying eeprom/spi_xx25xx character driver
+ *   readonly   - sets block driver to be readonly
  *
  * Returned Value:
  *   Initialised device structure (success) of NULL (fail)
  *
  ****************************************************************************/
 
-FAR struct mtd_dev_s *at25ee_initialize(FAR char *eedevname);
+FAR struct mtd_dev_s *at25ee_initialize(FAR char *eedevname, int readonly);
 
 /****************************************************************************
  * Name: at25ee_teardown

@@ -164,17 +164,6 @@
  * Types
  ****************************************************************************/
 
-/* Device geometry description, compact form (2 bytes per entry) */
-
-struct ee25xx_geom_s
-{
-  uint8_t bytes    : 4; /* Power of two of 128 bytes (0:128 1:256 2:512 etc) */
-  uint8_t pagesize : 4; /* Power of two of   8 bytes (0:8 1:16 2:32 3:64 etc) */
-  uint8_t secsize  : 4; /* Power of two of the page size */
-  uint8_t addrlen  : 4; /* Number of bytes in command address field */
-  uint8_t flags    : 4; /* Special address management for 25xx040, 1=A8 in inst */
-};
-
 /* Private data attached to the inode */
 
 struct ee25xx_dev_s
@@ -193,6 +182,35 @@ struct ee25xx_dev_s
  * Private Function Prototypes
  ****************************************************************************/
 
+/* SPI lock/unlock */
+
+static void ee25xx_lock(FAR struct spi_dev_s *dev);
+static void ee25xx_unlock(FAR struct spi_dev_s *dev);
+
+/* Trigger a read/write operation */
+
+static void ee25xx_sendcmd(FAR struct spi_dev_s *spi, uint8_t cmd,
+                           uint8_t addrlen, uint32_t addr);
+
+/* Write/erase related functions */
+
+static void ee25xx_waitwritecomplete(struct ee25xx_dev_s *priv);
+static void ee25xx_writeenable(FAR struct spi_dev_s *spi, int enable);
+static void ee25xx_writepage(FAR struct ee25xx_dev_s *eedev,
+                             uint32_t devaddr, FAR const char *data,
+                             size_t len);
+static int  ee25xx_eraseall(FAR struct ee25xx_dev_s *eedev);
+static int  ee25xx_erasepage(FAR struct ee25xx_dev_s *eedev,
+                             unsigned long index);
+static int  ee25xx_erasesector(FAR struct ee25xx_dev_s *eedev,
+                               unsigned long index);
+
+/* Initialization function */
+
+static void ee25xx_populateaddrlen(FAR struct ee25xx_dev_s *eedev);
+
+/* File operations */
+
 static int     ee25xx_open(FAR struct file *filep);
 static int     ee25xx_close(FAR struct file *filep);
 static off_t   ee25xx_seek(FAR struct file *filep, off_t offset, int whence);
@@ -206,80 +224,6 @@ static int     ee25xx_ioctl(FAR struct file *filep, int cmd,
 /****************************************************************************
  * Private Data
  ****************************************************************************/
-
-/* Supported device geometries.
- * One geometry can fit more than one device.
- * The user will use an enum'ed index from include/eeprom/spi_xx25xx.h
- */
-
-static const struct ee25xx_geom_s g_ee25xx_devices[] =
-{
-  /* Microchip devices */
-
-  {
-    0, 1, 1, 0, 0
-  }, /* 25xx010A     128     16     16      1 */
-  {
-    1, 1, 1, 0, 0
-  }, /* 25xx020A     256     16     16      1 */
-  {
-    2, 1, 1, 0, 1
-  }, /* 25xx040      512     16     16      1+bit */
-  {
-    3, 1, 1, 0, 0
-  }, /* 25xx080     1024     16     16      1 */
-  {
-    3, 2, 2, 0, 0
-  }, /* 25xx080B    1024     32     32      2 */
-  {
-    4, 1, 2, 0, 0
-  }, /* 25xx160     2048     16     16      2 */
-  {
-    4, 2, 2, 0, 0
-  }, /* 25xx160B/D  2048     32     32      2 */
-  {
-    5, 2, 2, 0, 0
-  }, /* 25xx320     4096     32     32      2 */
-  {
-    6, 2, 2, 0, 0
-  }, /* 25xx640     8192     32     32      2 */
-  {
-    7, 3, 2, 0, 0
-  }, /* 25xx128    16384     64     64      2 */
-  {
-    8, 3, 2, 0, 0
-  }, /* 25xx256    32768     64     64      2 */
-  {
-    9, 4, 2, 7, 0
-  }, /* 25xx512    65536    128  16384      2 */
-  {
-    10, 5, 3, 7, 0
-  }, /* 25xx1024  131072    256  32768      3 */
-
-  /* Atmel devices */
-
-  {
-    0, 0, 1, 0, 0
-  }, /* AT25010B     128      8      8      1 */
-  {
-    1, 0, 1, 0, 0
-  }, /* AT25020B     256      8      8      1 */
-  {
-    2, 0, 1, 0, 1
-  }, /* AT25040B     512      8      8      1+bit */
-  {
-    9, 4, 2, 0, 0
-  }, /* AT25512    65536    128    128      2 */
-  {
-    10, 5, 3, 0, 0
-  }, /* AT25M01   131072    256    256      3 */
-
-  /* STM devices */
-
-  {
-    11, 5, 3, 0, 0
-  }, /* M95M02    262144    256    256      3 */
-};
 
 /* Driver operations */
 
@@ -296,6 +240,33 @@ static const struct file_operations g_ee25xx_fops =
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: ee25xx_populateaddrlen
+ *
+ * Compute and populate the address length (in bits) based on the memory
+ * size. It is aligned to the byte size unless CONFIG_EE25XX_UNALIGNED_ADDR
+ * is defined.
+ *
+ ****************************************************************************/
+
+static void ee25xx_populateaddrlen(FAR struct ee25xx_dev_s *eedev)
+{
+  DEBUGASSERT(eedev);
+
+  eedev->addrlen = 0;
+  uint32_t size  = eedev->size - 1U;
+
+  while (size > 0)
+    {
+      ++eedev->addrlen;
+      size >>= 1U;
+    }
+
+#ifndef CONFIG_EE25XX_UNALIGNED_ADDR
+  eedev->addrlen = ((eedev->addrlen + 7U) / 8U) * 8U;
+#endif
+}
 
 /****************************************************************************
  * Name: ee25xx_lock
@@ -698,7 +669,7 @@ static int ee25xx_erasesector(FAR struct ee25xx_dev_s *eedev,
 /****************************************************************************
  * Name: ee25xx_open
  *
- * Description: Open the block device
+ * Description: Open the character device
  *
  ****************************************************************************/
 
@@ -735,7 +706,7 @@ static int ee25xx_open(FAR struct file *filep)
 /****************************************************************************
  * Name: ee25xx_close
  *
- * Description: Close the block device
+ * Description: Close the character device
  *
  ****************************************************************************/
 
@@ -876,15 +847,9 @@ static ssize_t ee25xx_read(FAR struct file *filep, FAR char *buffer,
   ee25xx_lock(eedev->spi);
   SPI_SELECT(eedev->spi, SPIDEV_EEPROM(0), true);
 
-  /* STM32F4Disco: There is a 25 us delay here */
-
   ee25xx_sendcmd(eedev->spi, EE25XX_CMD_READ, eedev->addrlen, filep->f_pos);
 
-  /* STM32F4Disco: There is a 42 us delay here */
-
   SPI_RECVBLOCK(eedev->spi, buffer, len);
-
-  /* STM32F4Disco: There is a 20 us delay here */
 
   SPI_SELECT(eedev->spi, SPIDEV_EEPROM(0), false);
   ee25xx_unlock(eedev->spi);
@@ -1057,22 +1022,32 @@ static int ee25xx_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 /****************************************************************************
  * Name: ee25xx_initialize
  *
- * Description: Bind a EEPROM driver to an SPI bus. The user MUST provide
- * a description of the device geometry, since it is not possible to read
- * this information from the device (contrary to the SPI flash devices).
+ * Description: Bind an EEPROM driver to an SPI bus.
  *
  ****************************************************************************/
 
 int ee25xx_initialize(FAR struct spi_dev_s *dev, FAR char *devname,
-                      int devtype, int readonly)
+                      int readonly)
 {
   FAR struct ee25xx_dev_s *eedev;
 
-  /* Check device type early */
+  /* Check device parameters early */
 
-  if ((devtype < 0) ||
-      (devtype >= sizeof(g_ee25xx_devices) / sizeof(g_ee25xx_devices[0])))
+  if ((CONFIG_EE25XX_MEMSIZE % 128) != 0)
     {
+      ferr("ERROR: Invalid memory size\n");
+      return -EINVAL;
+    }
+
+  if ((CONFIG_EE25XX_PGSIZE % 8) != 0)
+    {
+      ferr("ERROR: Invalid page size\n");
+      return -EINVAL;
+    }
+
+  if ((CONFIG_EE25XX_SECTSIZE % 8) != 0)
+    {
+      ferr("ERROR: Invalid sector size\n");
       return -EINVAL;
     }
 
@@ -1086,16 +1061,12 @@ int ee25xx_initialize(FAR struct spi_dev_s *dev, FAR char *devname,
   nxmutex_init(&eedev->lock);
 
   eedev->spi      = dev;
-  eedev->size     =           128 << g_ee25xx_devices[devtype].bytes;
-  eedev->pgsize   =             8 << g_ee25xx_devices[devtype].pagesize;
-  eedev->secsize  = eedev->pgsize << g_ee25xx_devices[devtype].secsize;
-  eedev->addrlen  =                  g_ee25xx_devices[devtype].addrlen << 3;
-  if ((g_ee25xx_devices[devtype].flags & 1))
-    {
-      eedev->addrlen = 9;
-    }
-
+  eedev->size     = CONFIG_EE25XX_MEMSIZE;
+  eedev->pgsize   = CONFIG_EE25XX_PGSIZE;
+  eedev->secsize  = CONFIG_EE25XX_SECTSIZE;
   eedev->readonly = !!readonly;
+
+  ee25xx_populateaddrlen(eedev);
 
   ferr("EEPROM device %s, %"PRIu32" bytes, "
         "%u per page, addrlen %u, readonly %d\n",

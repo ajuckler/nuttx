@@ -21,6 +21,264 @@ config SPI_EE_25XX
 
 if SPI_EE_25XX
 
+choice
+	prompt "Chip model"
+	default EE25XX_MICRO_25XX010
+	---help---
+		Select the specific 25xx chip to interface. The driver will set its
+		corresponding geometry (memory size, page size, sector size and addres
+		length) appropriately.
+
+config EE25XX_MICRO_25XX010
+	bool "Microchip 25XX010"
+
+config EE25XX_MICRO_25XX020
+	bool "Microchip 25XX020"
+
+config EE25XX_MICRO_25XX040
+	bool "Microchip 25XX040"
+
+config EE25XX_MICRO_25XX080A
+	bool "Microchip 25XX080A"
+
+config EE25XX_MICRO_25XX080B
+	bool "Microchip 25XX080B"
+
+config EE25XX_MICRO_25XX160A
+	bool "Microchip 25XX160A"
+
+config EE25XX_MICRO_25XX160B
+	bool "Microchip 25XX160B"
+
+config EE25XX_MICRO_25XX320
+	bool "Microchip 25XX320"
+
+config EE25XX_MICRO_25XX640
+	bool "Microchip 25XX640"
+
+config EE25XX_MICRO_25XX128
+	bool "Microchip 25XX128"
+
+config EE25XX_MICRO_25XX256
+	bool "Microchip 25XX256"
+
+config EE25XX_MICRO_25XX512
+	bool "Microchip 25XX512"
+
+config EE25XX_MICRO_25XX1024
+	bool "Microchip 25XX1024"
+
+config EE25XX_AT25010B
+	bool "Atmel AT25010B"
+
+config EE25XX_AT25020B
+	bool "Atmel AT25020B"
+
+config EE25XX_AT25040B
+	bool "Atmel AT25040B"
+
+config EE25XX_AT25080B
+	bool "Atmel AT25080B"
+
+config EE25XX_AT25160B
+	bool "Atmel AT25160B"
+
+config EE25XX_AT25320B
+	bool "Atmel AT25320B"
+
+config EE25XX_AT25640B
+	bool "Atmel AT25640B"
+
+config EE25XX_AT25128B
+	bool "Atmel AT25128B"
+
+config EE25XX_AT25256B
+	bool "Atmel AT25256B"
+
+config EE25XX_AT25512
+	bool "Atmel AT25512"
+
+config EE25XX_AT25M01
+	bool "Atmel AT25M01"
+
+config EE25XX_AT25M02
+	bool "Atmel AT25M02"
+
+config EE25XX_STM_M95010
+	bool "STM M95010"
+
+config EE25XX_STM_M95020
+	bool "STM M95020"
+
+config EE25XX_STM_M95040
+	bool "STM M95040"
+
+config EE25XX_STM_M95080
+	bool "STM M95080"
+
+config EE25XX_STM_M95160
+	bool "STM M95160"
+
+config EE25XX_STM_M95320
+	bool "STM M95320"
+
+config EE25XX_STM_M95640
+	bool "STM M95640"
+
+config EE25XX_STM_M95128
+	bool "STM M95128"
+
+config EE25XX_STM_M95256
+	bool "STM M95256"
+
+config EE25XX_STM_M95512
+	bool "STM M95512"
+
+config EE25XX_STM_M95M01
+	bool "STM M95M01"
+
+config EE25XX_STM_M95M02
+	bool "STM M95M02"
+
+config EE25XX_CUSTOM
+	bool "Other (custom)"
+
+endchoice
+
+if EE25XX_CUSTOM
+config EE25XX_CUST_MEMSIZE
+	int "Total memory size (bytes)"
+	default 128
+
+config EE25XX_CUST_PGSIZE
+	int "Page size (bytes)"
+	default 16
+
+config EE25XX_CUST_SECT_ERASE
+	bool "Sector erase support"
+	default n
+
+config EE25XX_CUST_SECTSIZE
+	int "Sector size (bytes)"
+	default 16
+	depends on EE25XX_CUST_SECT_ERASE
+
+config EE25XX_CUST_CHIP_ERASE
+	bool "Chip erase support"
+	default n
+
+config EE25XX_CUST_UNALIGNED_ADDR
+	bool "Unaligned address bit length"
+	default n
+	---help---
+		Some devices (like the Microchip 25XX040) use an address length
+		that is not aligned with 8 bits.
+
+endif # EE25XX_CUSTOM
+
+config EE25XX_MEMSIZE
+	int
+	default 256 if EE25XX_MICRO_25XX020
+	default 256 if EE25XX_AT25020B
+	default 256 if EE25XX_STM_M95020
+	default 512 if EE25XX_MICRO_25XX040
+	default 512 if EE25XX_AT25040B
+	default 512 if EE25XX_STM_M95040
+	default 1024 if EE25XX_MICRO_25XX080A
+	default 1024 if EE25XX_MICRO_25XX080B
+	default 1024 if EE25XX_AT25080B
+	default 1024 if EE25XX_STM_M95080
+	default 2048 if EE25XX_MICRO_25XX160A
+	default 2048 if EE25XX_MICRO_25XX160B
+	default 2048 if EE25XX_AT25160B
+	default 2048 if EE25XX_STM_M95160
+	default 4096 if EE25XX_MICRO_25XX320
+	default 4096 if EE25XX_AT25320B
+	default 4096 if EE25XX_STM_M95320
+	default 8192 if EE25XX_MICRO_25XX640
+	default 8192 if EE25XX_AT25640B
+	default 8192 if EE25XX_STM_M95640
+	default 16384 if EE25XX_MICRO_25XX128
+	default 16384 if EE25XX_AT25128B
+	default 16384 if EE25XX_STM_M95128
+	default 32768 if EE25XX_MICRO_25XX256
+	default 32768 if EE25XX_AT25256B
+	default 32768 if EE25XX_STM_M95256
+	default 65536 if EE25XX_MICRO_25XX512
+	default 65536 if EE25XX_AT25512
+	default 65536 if EE25XX_STM_M95512
+	default 131072 if EE25XX_MICRO_25XX1024
+	default 131072 if EE25XX_AT25M01
+	default 131072 if EE25XX_STM_M95M01
+	default 262144 if EE25XX_AT25M02
+	default 262144 if EE25XX_STM_M95M02
+	default EE25XX_CUST_MEMSIZE if EE25XX_CUSTOM
+	default 128
+
+config EE25XX_PGSIZE
+	int
+	default 8 if EE25XX_AT25010B
+	default 8 if EE25XX_AT25020B
+	default 8 if EE25XX_AT25040B
+	default 32 if EE25XX_MICRO_25XX080B
+	default 32 if EE25XX_AT25080B
+	default 32 if EE25XX_STM_M95080
+	default 16 if EE25XX_MICRO_25XX160A
+	default 32 if EE25XX_MICRO_25XX160B
+	default 32 if EE25XX_AT25160B
+	default 32 if EE25XX_STM_M95160
+	default 32 if EE25XX_MICRO_25XX320
+	default 32 if EE25XX_AT25320B
+	default 32 if EE25XX_STM_M95320
+	default 32 if EE25XX_MICRO_25XX640
+	default 32 if EE25XX_AT25640B
+	default 32 if EE25XX_STM_M95640
+	default 64 if EE25XX_MICRO_25XX128
+	default 64 if EE25XX_AT25128B
+	default 64 if EE25XX_STM_M95128
+	default 64 if EE25XX_MICRO_25XX256
+	default 64 if EE25XX_AT25256B
+	default 64 if EE25XX_STM_M95256
+	default 128 if EE25XX_MICRO_25XX512
+	default 128 if EE25XX_AT25512
+	default 128 if EE25XX_STM_M95512
+	default 256 if EE25XX_MICRO_25XX1024
+	default 256 if EE25XX_AT25M01
+	default 256 if EE25XX_STM_M95M01
+	default 256 if EE25XX_AT25M02
+	default 256 if EE25XX_STM_M95M02
+	default EE25XX_CUST_PGSIZE if EE25XX_CUSTOM
+	default 16
+
+config CONFIG_EE25XX_UNALIGNED_ADDR
+	bool
+	default y if EE25XX_MICRO_25XX040
+	default y if EE25XX_AT25040B
+	default y if EE25XX_STM_M95040
+	default EE25XX_CUST_UNALIGNED_ADDR if EE25XX_CUSTOM
+	default n
+
+config EE25XX_SECT_ERASE
+	bool
+	default y if EE25XX_MICRO_25XX512
+	default y if EE25XX_MICRO_25XX1024
+	default EE25XX_CUST_SECT_ERASE if EE25XX_CUSTOM
+	default n
+
+config EE25XX_SECTSIZE
+	int
+	default 16384 if EE25XX_MICRO_25XX512
+	default 32768 if EE25XX_MICRO_25XX1024
+	default EE25XX_CUST_SECTSIZE if EE25XX_CUST_SECT_ERASE
+	default EE25XX_PGSIZE
+
+config EE25XX_CHIP_ERASE
+	bool
+	default y if EE25XX_MICRO_25XX512
+	default y if EE25XX_MICRO_25XX1024
+	default EE25XX_CUST_CHIP_ERASE if EE25XX_CUSTOM
+	default n
+
 config EE25XX_SPIMODE
 	int "SPI mode (0-3)"
 	default 0
