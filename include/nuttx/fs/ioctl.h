@@ -108,6 +108,7 @@
 #define _PINCTRLBASE    (0x4000) /* Pinctrl driver ioctl commands */
 #define _PCIBASE        (0x4100) /* Pci ioctl commands */
 #define _I3CBASE        (0x4200) /* I3C driver ioctl commands */
+#define _EEPIOCBASE     (0x4300) /* EEPROM driver ioctl commands */
 #define _WLIOCBASE      (0x8b00) /* Wireless modules ioctl network commands */
 
 /* boardctl() commands share the same number space */
@@ -234,7 +235,7 @@
                                            * OUT: Current file xip base address
                                            */
 
-/* NuttX file system ioctl definitions **************************************/
+/* NuttX character driver ioctl definitions *********************************/
 
 #define _DIOCVALID(c)   (_IOC_TYPE(c)==_DIOCBASE)
 #define _DIOC(nr)       _IOC(_DIOCBASE,nr)
@@ -740,6 +741,13 @@
 
 #define _I3CIOCVALID(c)   (_IOC_TYPE(c)==_I3CBASE)
 #define _I3CIOC(nr)       _IOC(_I3CBASE,nr)
+
+/* EEPROM driver ioctl definitions ******************************************/
+
+/* (see nuttx/include/eeprom/eeprom.h */
+
+#define _EEPIOCVALID(c)    (_IOC_TYPE(c)==_EEPIOCBASE)
+#define _EEPIOC(nr)        _IOC(_EEPIOCBASE,nr)
 
 /* Force Feedback driver command definitions ********************************/
 

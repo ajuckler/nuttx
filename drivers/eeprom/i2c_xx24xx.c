@@ -84,12 +84,13 @@
 #include <errno.h>
 #include <string.h>
 #include <inttypes.h>
-#include <nuttx/fs/fs.h>
 
+#include <nuttx/eeprom/eeprom.h>
+#include <nuttx/eeprom/i2c_xx24xx.h>
+#include <nuttx/fs/fs.h>
+#include <nuttx/i2c/i2c_master.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/mutex.h>
-#include <nuttx/i2c/i2c_master.h>
-#include <nuttx/eeprom/i2c_xx24xx.h>
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -328,6 +329,135 @@ static int ee24xx_writepage(FAR struct ee24xx_dev_s *eedev, uint32_t memaddr,
   msgs[1].length    = len;
 
   return I2C_TRANSFER(eedev->i2c, msgs, 2);
+}
+
+/****************************************************************************
+ * Name: ee24xx_eraseall
+ *
+ * Erase all data in the device
+ *
+ ****************************************************************************/
+
+static int ee24xx_eraseall(FAR struct ee24xx_dev_s *eedev)
+{
+  DEBUGASSERT(eedev);
+
+  if (eedev->readonly)
+    {
+      return -EACCES;
+    }
+
+  uint8_t *buf    = NULL;
+  off_t    offset = 0;
+  int      ret    = OK;
+
+  buf = kmm_malloc(eedev->pgsize);
+  if (buf == NULL)
+    {
+      ferr("ERROR: Failed to allocate memory for ee24xx eraseall\n");
+      return -ENOMEM;
+    }
+
+  (void)memset(buf, 0xff, eedev->pgsize);
+
+  ret = nxmutex_lock(&eedev->lock);
+  if (ret < 0)
+    {
+      goto free_buffer;
+    }
+
+  for (offset = 0; offset < eedev->size; offset += eedev->pgsize)
+    {
+      ret = ee24xx_writepage(eedev, offset, (char *)buf, eedev->pgsize);
+      if (ret < 0)
+        {
+          ferr("ERROR: Failed to write page at offset %" PRIdOFF \
+               " (ret = %d)",
+               offset, ret);
+          goto release_semaphore;
+        }
+
+      ret = ee24xx_waitwritecomplete(eedev, offset);
+      if (ret < 0)
+        {
+          ferr("ERROR while waiting for write at offset %" PRIdOFF \
+               " to complete (ret = %d)",
+               offset, ret);
+          goto release_semaphore;
+        }
+    }
+
+release_semaphore:
+  nxmutex_unlock(&eedev->lock);
+
+free_buffer:
+  kmm_free(buf);
+
+  return ret;
+}
+
+/****************************************************************************
+ * Name: ee24xx_erasepage
+ *
+ * Erase 1 page of data
+ *
+ ****************************************************************************/
+
+static int ee24xx_erasepage(FAR struct ee24xx_dev_s *eedev,
+                            unsigned long index)
+{
+  DEBUGASSERT(eedev);
+  DEBUGASSERT(eedev->pgsize > 0);
+
+  if (eedev->readonly)
+    {
+      return -EACCES;
+    }
+
+  if (index >= (eedev->size / eedev->pgsize))
+    {
+      return -EFBIG;
+    }
+
+  uint8_t *buf = kmm_malloc(eedev->pgsize);
+  int      ret = OK;
+
+  if (buf == NULL)
+    {
+      ferr("ERROR: Failed to allocate memory for ee24xx_erasepage\n");
+      return -ENOMEM;
+    }
+
+  (void)memset(buf, 0xff, eedev->pgsize);
+
+  ret = nxmutex_lock(&eedev->lock);
+  if (ret < 0)
+    {
+      goto free_buffer;
+    }
+
+  const off_t offset = index * eedev->pgsize;
+  ret = ee24xx_writepage(eedev, offset, (char *)buf, eedev->pgsize);
+  if (ret < 0)
+    {
+      ferr("ERROR: Failed to write page (ret = %d)", ret);
+      goto release_semaphore;
+    }
+
+  ret = ee24xx_waitwritecomplete(eedev, offset);
+  if (ret < 0)
+    {
+      ferr("ERROR while waiting for write to complete (ret = %d)",
+           offset, ret);
+    }
+
+release_semaphore:
+  nxmutex_unlock(&eedev->lock);
+
+free_buffer:
+  kmm_free(buf);
+
+  return ret;
 }
 
 /****************************************************************************
@@ -605,7 +735,7 @@ static ssize_t at24cs_read_uuid(FAR struct file *filep, FAR char *buffer,
 
   /* Write data address */
 
-  finfo("READ %d bytes at pos %d\n", len, filep->f_pos);
+  finfo("READ %zu bytes at pos %" PRIdOFF "\n", len, filep->f_pos);
 
   regindx           = 0x80;             /* reg index of UUID[0] */
 
@@ -779,14 +909,42 @@ static int ee24xx_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 {
   FAR struct ee24xx_dev_s *eedev;
   FAR struct inode        *inode = filep->f_inode;
-  int                      ret   = 0;
+  int                      ret   = -EINVAL;
 
   DEBUGASSERT(inode->i_private);
   eedev = inode->i_private;
-  UNUSED(eedev);
 
   switch (cmd)
     {
+      case EEPIOC_GEOMETRY:
+        {
+          FAR struct eeprom_geometry_s *geo =
+            (FAR struct eeprom_geometry_s *)arg;
+          if (geo != NULL)
+            {
+              geo->npages   = 0;
+              geo->pagesize = eedev->pgsize;
+              geo->sectsize = eedev->pgsize;
+
+              if (eedev->pgsize > 0)
+                {
+                  geo->npages = eedev->size / eedev->pgsize;
+                }
+
+              ret = OK;
+            }
+        }
+        break;
+
+      case EEPIOC_PAGEERASE:
+      case EEPIOC_SECTORERASE:
+        ret = ee24xx_erasepage(eedev, arg);
+        break;
+
+      case EEPIOC_CHIPERASE:
+        ret = ee24xx_eraseall(eedev);
+        break;
+
       default:
         ret = -ENOTTY;
     }
